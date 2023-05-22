@@ -9,9 +9,9 @@ import (
 
 func resourceGithubIssueLabels() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceGithubIssueLabelsCreate,
+		Create: resourceGithubIssueLabelsCreateOrUpdate,
 		Read:   resourceGithubIssueLabelsRead,
-		Update: resourceGithubIssueLabelsUpdate,
+		Update: resourceGithubIssueLabelsCreateOrUpdate,
 		Delete: resourceGithubIssueLabelsDelete,
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
@@ -19,9 +19,9 @@ func resourceGithubIssueLabels() *schema.Resource {
 
 		Schema: map[string]*schema.Schema{
 			"repository": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
+				Type:        schema.TypeString,
+				Required:    true,
+				ForceNew:    true,
 				Description: "The GitHub repository.",
 			},
 			"label": {
@@ -37,7 +37,7 @@ func resourceGithubIssueLabels() *schema.Resource {
 						},
 						"color": {
 							Type:        schema.TypeString,
-							Required:    true,
+							Optional:    true,
 							Description: "A 6 character hex code, without the leading '#', identifying the color of the label.",
 						},
 						"description": {
@@ -61,36 +61,14 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 	client := meta.(*Owner).v3client
 
 	owner := meta.(*Owner).name
-	repoName := d.Id()
-	ctx := context.WithValue(context.Background(), ctxId, d.Id())
+	repository := d.Get("repository").(string)
 
-	options := &github.ListOptions{
-		PerPage: 100,
+	labels, err := githubIssueLabels(client, owner, repository)
+	if err != nil {
+		return err
 	}
 
-	labels := []interface{}{}
-
-	for {
-		ls, resp, err := client.Issues.ListLabels(ctx, owner, repoName, options)
-		if err != nil {
-			return err
-		}
-		for _, l := range ls {
-			labels = append(labels, map[string]interface{}{
-				"name":        l.GetName(),
-				"color":       l.GetColor(),
-				"description": l.GetDescription(),
-				"url":         l.GetURL(),
-			})
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		options.Page = resp.NextPage
-	}
-
-	err := d.Set("label", labels)
+	err = d.Set("label", labels)
 	if err != nil {
 		return err
 	}
@@ -102,17 +80,17 @@ func resourceGithubIssueLabelsDelete(d *schema.ResourceData, meta interface{}) e
 	client := meta.(*Owner).v3client
 
 	owner := meta.(*Owner).name
-	repoName := d.Get("repository").(string)
-	ctx := context.WithValue(context.Background(), ctxId, d.Id())
+	repository := d.Get("repository").(string)
+	ctx := context.WithValue(context.Background(), ctxId, repository)
 
-	labels := d.Get("label").(*schema.Set)
+	labels := d.Get("label").(*schema.Set).List()
 
-	for _, label := range labels.List() {
+	for _, label := range labels {
 		l := label.(map[string]interface{})
 
 		name := l["name"].(string)
 
-		_, err := client.Issues.DeleteLabel(ctx, owner, repoName, name)
+		_, err := client.Issues.DeleteLabel(ctx, owner, repository, name)
 		if err != nil {
 			return err
 		}
@@ -121,16 +99,16 @@ func resourceGithubIssueLabelsDelete(d *schema.ResourceData, meta interface{}) e
 	return nil
 }
 
-func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) error {
+func resourceGithubIssueLabelsCreateOrUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*Owner).v3client
 
 	owner := meta.(*Owner).name
-	repoName := d.Get("repository").(string)
+	repository := d.Get("repository").(string)
 	ctx := context.WithValue(context.Background(), ctxId, d.Id())
 
 	o, n := d.GetChange("label")
-	oMap := map[string]map[string]interface{}{}
-	nMap := map[string]map[string]interface{}{}
+	oMap := make(map[string]map[string]interface{})
+	nMap := make(map[string]map[string]interface{})
 	for _, raw := range o.(*schema.Set).List() {
 		m := raw.(map[string]interface{})
 		name := m["name"].(string)
@@ -143,9 +121,9 @@ func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) e
 	}
 
 	// delete
-	for name, _ := range oMap {
+	for name := range oMap {
 		if _, ok := nMap[name]; !ok {
-			_, err := client.Issues.DeleteLabel(ctx, owner, repoName, name)
+			_, err := client.Issues.DeleteLabel(ctx, owner, repository, name)
 			if err != nil {
 				return err
 			}
@@ -155,7 +133,7 @@ func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) e
 	// create
 	for name, m := range nMap {
 		if _, ok := oMap[name]; !ok {
-			_, _, err := client.Issues.CreateLabel(ctx, owner, repoName, &github.Label{
+			_, _, err := client.Issues.CreateLabel(ctx, owner, repository, &github.Label{
 				Name:        github.String(name),
 				Color:       github.String(m["color"].(string)),
 				Description: github.String(m["description"].(string)),
@@ -169,7 +147,7 @@ func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) e
 	// update
 	for name, m := range nMap {
 		if _, ok := oMap[name]; ok {
-			_, _, err := client.Issues.EditLabel(ctx, owner, repoName, name, &github.Label{
+			_, _, err := client.Issues.EditLabel(ctx, owner, repository, name, &github.Label{
 				Name:        github.String(name),
 				Color:       github.String(m["color"].(string)),
 				Description: github.String(m["description"].(string)),
@@ -180,32 +158,61 @@ func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) e
 		}
 	}
 
-	d.SetId(repoName)
+	labels, err := githubIssueLabels(client, owner, repository)
+	if err != nil {
+		return err
+	}
 
-	return resourceGithubIssueLabelsRead(d, meta)
-}
-
-func resourceGithubIssueLabelsCreate(d *schema.ResourceData, meta interface{}) error {
-	client := meta.(*Owner).v3client
-
-	owner := meta.(*Owner).name
-	repoName := d.Get("repository").(string)
-	ctx := context.WithValue(context.Background(), ctxId, d.Id())
-
-	labels := d.Get("label").(*schema.Set)
-	for _, label := range labels.List() {
-		l := label.(map[string]interface{})
-		_, _, err := client.Issues.CreateLabel(ctx, owner, repoName, &github.Label{
-			Name:        github.String(l["name"].(string)),
-			Color:       github.String(l["color"].(string)),
-			Description: github.String(l["description"].(string)),
-		})
-		if err != nil {
-			return err
+	filtered := make([]map[string]interface{}, 0)
+	for _, label := range labels {
+		name := label["name"].(string)
+		_, oOk := oMap[name]
+		_, nOk := nMap[name]
+		if oOk || nOk {
+			filtered = append(filtered, label)
 		}
 	}
 
-	d.SetId(repoName)
+	d.SetId(repository)
 
-	return resourceGithubIssueLabelsRead(d, meta)
+	err = d.Set("label", filtered)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func githubIssueLabels(client *github.Client, owner, repository string) ([]map[string]interface{}, error) {
+	ctx := context.WithValue(context.Background(), ctxId, repository)
+
+	options := &github.ListOptions{
+		PerPage: maxPerPage,
+	}
+
+	labels := make([]map[string]interface{}, 0)
+
+	for {
+		ls, resp, err := client.Issues.ListLabels(ctx, owner, repository, options)
+		if err != nil {
+			return nil, err
+		}
+		for _, l := range ls {
+			label := make(map[string]interface{})
+
+			label["name"] = l.GetName()
+			label["color"] = l.GetColor()
+			label["description"] = l.GetDescription()
+			label["url"] = l.GetURL()
+
+			labels = append(labels, label)
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		options.Page = resp.NextPage
+	}
+
+	return labels, nil
 }

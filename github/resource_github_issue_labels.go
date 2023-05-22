@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/google/go-github/v52/github"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
@@ -10,10 +11,10 @@ import (
 
 func resourceGithubIssueLabels() *schema.Resource {
 	return &schema.Resource{
-		Create: resourceGithubIssueLabelsCreateOrUpdateOrDelete,
+		Create: resourceGithubIssueLabelsCreateOrDeleteOrUpdate,
 		Read:   resourceGithubIssueLabelsRead,
-		Update: resourceGithubIssueLabelsCreateOrUpdateOrDelete,
-		Delete: resourceGithubIssueLabelsCreateOrUpdateOrDelete,
+		Update: resourceGithubIssueLabelsCreateOrDeleteOrUpdate,
+		Delete: resourceGithubIssueLabelsCreateOrDeleteOrUpdate,
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
 		},
@@ -87,7 +88,7 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 	return nil
 }
 
-func resourceGithubIssueLabelsCreateOrUpdateOrDelete(d *schema.ResourceData, meta interface{}) error {
+func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, meta interface{}) error {
 	client := meta.(*Owner).v3client
 
 	owner := meta.(*Owner).name
@@ -104,37 +105,37 @@ func resourceGithubIssueLabelsCreateOrUpdateOrDelete(d *schema.ResourceData, met
 	nMap := make(map[string]map[string]interface{})
 	for _, raw := range o.(*schema.Set).List() {
 		m := raw.(map[string]interface{})
-		name := m["name"].(string)
+		name := strings.ToLower(m["name"].(string))
 		oMap[name] = m
 	}
 	for _, raw := range n.(*schema.Set).List() {
 		m := raw.(map[string]interface{})
-		name := m["name"].(string)
+		name := strings.ToLower(m["name"].(string))
 		nMap[name] = m
 	}
 
-	// delete
-	for name := range oMap {
-		if _, ok := nMap[name]; !ok {
-			log.Printf("[DEBUG] Deleting GitHub issue label %s/%s/%s", owner, repository, name)
+	// create
+	for name, n := range nMap {
+		if _, ok := oMap[name]; !ok {
+			log.Printf("[DEBUG] Creating GitHub issue label %s/%s/%s", owner, repository, name)
 
-			_, err := client.Issues.DeleteLabel(ctx, owner, repository, name)
+			_, _, err := client.Issues.CreateLabel(ctx, owner, repository, &github.Label{
+				Name:        github.String(n["name"].(string)),
+				Color:       github.String(n["color"].(string)),
+				Description: github.String(n["description"].(string)),
+			})
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	// create
-	for name, m := range nMap {
-		if _, ok := oMap[name]; !ok {
-			log.Printf("[DEBUG] Creating GitHub issue label %s/%s/%s", owner, repository, name)
+	// delete
+	for name, o := range oMap {
+		if _, ok := nMap[name]; !ok {
+			log.Printf("[DEBUG] Deleting GitHub issue label %s/%s/%s", owner, repository, name)
 
-			_, _, err := client.Issues.CreateLabel(ctx, owner, repository, &github.Label{
-				Name:        github.String(name),
-				Color:       github.String(m["color"].(string)),
-				Description: github.String(m["description"].(string)),
-			})
+			_, err := client.Issues.DeleteLabel(ctx, owner, repository, o["name"].(string))
 			if err != nil {
 				return err
 			}
@@ -142,17 +143,19 @@ func resourceGithubIssueLabelsCreateOrUpdateOrDelete(d *schema.ResourceData, met
 	}
 
 	// update
-	for name, m := range nMap {
-		if _, ok := oMap[name]; ok {
-			log.Printf("[DEBUG] Updating GitHub issue label %s/%s/%s", owner, repository, name)
+	for name, n := range nMap {
+		if o, ok := oMap[name]; ok {
+			if o["name"] != n["name"] || o["color"] != n["color"] || o["description"] != n["description"] {
+				log.Printf("[DEBUG] Updating GitHub issue label %s/%s/%s", owner, repository, name)
 
-			_, _, err := client.Issues.EditLabel(ctx, owner, repository, name, &github.Label{
-				Name:        github.String(name),
-				Color:       github.String(m["color"].(string)),
-				Description: github.String(m["description"].(string)),
-			})
-			if err != nil {
-				return err
+				_, _, err := client.Issues.EditLabel(ctx, owner, repository, name, &github.Label{
+					Name:        github.String(n["name"].(string)),
+					Color:       github.String(n["color"].(string)),
+					Description: github.String(n["description"].(string)),
+				})
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -171,7 +174,7 @@ func resourceGithubIssueLabelsCreateOrUpdateOrDelete(d *schema.ResourceData, met
 
 	filtered := make([]map[string]interface{}, 0)
 	for _, label := range labels {
-		name := label["name"].(string)
+		name := strings.ToLower(label["name"].(string))
 		_, oOk := oMap[name]
 		_, nOk := nMap[name]
 		if oOk || nOk {

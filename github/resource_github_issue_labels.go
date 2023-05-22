@@ -33,9 +33,9 @@ func resourceGithubIssueLabels() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"name": {
-							Type:        schema.TypeString,
-							Required:    true,
-							Description: "The name of the label.",
+							Type:             schema.TypeString,
+							Required:         true,
+							Description:      "The name of the label.",
 						},
 						"color": {
 							Type:        schema.TypeString,
@@ -67,15 +67,38 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 
 	log.Printf("[DEBUG] Reading GitHub issue labels for %s/%s", owner, repository)
 
-	labels, err := githubIssueLabels(client, owner, repository)
-	if err != nil {
-		return err
+	ctx := context.WithValue(context.Background(), ctxId, repository)
+
+	options := &github.ListOptions{
+		PerPage: maxPerPage,
+	}
+
+	labels := make([]map[string]interface{}, 0)
+
+	for {
+		ls, resp, err := client.Issues.ListLabels(ctx, owner, repository, options)
+		if err != nil {
+			return err
+		}
+		for _, l := range ls {
+			labels = append(labels, map[string]interface{}{
+				"name":        l.GetName(),
+				"color":       l.GetColor(),
+				"description": l.GetDescription(),
+				"url":         l.GetURL(),
+			})
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		options.Page = resp.NextPage
 	}
 
 	log.Printf("[DEBUG] Found %d GitHub issue labels for %s/%s", len(labels), owner, repository)
 	log.Printf("[DEBUG] Labels: %v", labels)
 
-	err = d.Set("repository", repository)
+	err := d.Set("repository", repository)
 	if err != nil {
 		return err
 	}
@@ -114,6 +137,8 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 		nMap[name] = m
 	}
 
+	labels := make([]map[string]interface{}, 0)
+
 	// create
 	for name, n := range nMap {
 		if _, ok := oMap[name]; !ok {
@@ -127,6 +152,18 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 			if err != nil {
 				return err
 			}
+
+			label, _, err := client.Issues.GetLabel(ctx, owner, repository, name)
+			if err != nil {
+				return err
+			}
+
+			labels = append(labels, map[string]interface{}{
+				"name":        label.GetName(),
+				"color":       label.GetColor(),
+				"description": label.GetDescription(),
+				"url":         label.GetURL(),
+			})
 		}
 	}
 
@@ -157,74 +194,27 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 					return err
 				}
 			}
+
+			label, _, err := client.Issues.GetLabel(ctx, owner, repository, name)
+			if err != nil {
+				return err
+			}
+
+			labels = append(labels, map[string]interface{}{
+				"name":        label.GetName(),
+				"color":       label.GetColor(),
+				"description": label.GetDescription(),
+				"url":         label.GetURL(),
+			})
 		}
 	}
-
-	log.Printf("[DEBUG] Reading GitHub issue labels for %s/%s", owner, repository)
-
-	labels, err := githubIssueLabels(client, owner, repository)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("[DEBUG] Found %d GitHub issue labels for %s/%s", len(labels), owner, repository)
-	log.Printf("[DEBUG] Labels: %v", labels)
-
-	log.Printf("[DEBUG] Filtering GitHub issue labels for %s/%s", owner, repository)
-
-	filtered := make([]map[string]interface{}, 0)
-	for _, label := range labels {
-		name := strings.ToLower(label["name"].(string))
-		_, oOk := oMap[name]
-		_, nOk := nMap[name]
-		if oOk || nOk {
-			filtered = append(filtered, label)
-		}
-	}
-
-	log.Printf("[DEBUG] Filtered %d GitHub issue labels for %s/%s", len(filtered), owner, repository)
-	log.Printf("[DEBUG] Filtered labels: %v", filtered)
 
 	d.SetId(repository)
 
-	err = d.Set("label", filtered)
+	err := d.Set("label", labels)
 	if err != nil {
 		return err
 	}
 
 	return nil
-}
-
-func githubIssueLabels(client *github.Client, owner, repository string) ([]map[string]interface{}, error) {
-	ctx := context.WithValue(context.Background(), ctxId, repository)
-
-	options := &github.ListOptions{
-		PerPage: maxPerPage,
-	}
-
-	labels := make([]map[string]interface{}, 0)
-
-	for {
-		ls, resp, err := client.Issues.ListLabels(ctx, owner, repository, options)
-		if err != nil {
-			return nil, err
-		}
-		for _, l := range ls {
-			label := make(map[string]interface{})
-
-			label["name"] = l.GetName()
-			label["color"] = l.GetColor()
-			label["description"] = l.GetDescription()
-			label["url"] = l.GetURL()
-
-			labels = append(labels, label)
-		}
-
-		if resp.NextPage == 0 {
-			break
-		}
-		options.Page = resp.NextPage
-	}
-
-	return labels, nil
 }

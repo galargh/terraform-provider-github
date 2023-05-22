@@ -19,16 +19,10 @@ func resourceGithubIssueLabels() *schema.Resource {
 
 		Schema: map[string]*schema.Schema{
 			"repository": {
-				Type:        schema.TypeString,
-				Required:    true,
-				ForceNew:    true,
+				Type:     schema.TypeString,
+				Required: true,
+				ForceNew: true,
 				Description: "The GitHub repository.",
-			},
-			"authoritative": {
-				Type:        schema.TypeBool,
-				Optional:    true,
-				Default:     true,
-				Description: "Take authority over all repository labels.",
 			},
 			"label": {
 				Type:        schema.TypeSet,
@@ -68,7 +62,6 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 
 	owner := meta.(*Owner).name
 	repoName := d.Id()
-	authoritative := d.Get("authoritative").(bool)
 	ctx := context.WithValue(context.Background(), ctxId, d.Id())
 
 	options := &github.ListOptions{
@@ -77,36 +70,18 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 
 	labels := []interface{}{}
 
-	names := []string{}
-	if !authoritative {
-		for _, l := range d.Get("label").(*schema.Set).List() {
-			names = append(names, l.(map[string]interface{})["name"].(string))
-		}
-	}
-
-	contains := func(s []string, e string) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
-	}
-
 	for {
 		ls, resp, err := client.Issues.ListLabels(ctx, owner, repoName, options)
 		if err != nil {
 			return err
 		}
 		for _, l := range ls {
-			if authoritative || contains(names, l.GetName()) {
-				labels = append(labels, map[string]interface{}{
-					"name":        l.GetName(),
-					"color":       l.GetColor(),
-					"description": l.GetDescription(),
-					"url":         l.GetURL(),
-				})
-			}
+			labels = append(labels, map[string]interface{}{
+				"name":        l.GetName(),
+				"color":       l.GetColor(),
+				"description": l.GetDescription(),
+				"url":         l.GetURL(),
+			})
 		}
 
 		if resp.NextPage == 0 {
@@ -115,17 +90,7 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 		options.Page = resp.NextPage
 	}
 
-	err := d.Set("repository", repoName)
-	if err != nil {
-		return err
-	}
-
-	err = d.Set("authoritative", authoritative)
-	if err != nil {
-		return err
-	}
-
-	err = d.Set("label", labels)
+	err := d.Set("label", labels)
 	if err != nil {
 		return err
 	}
@@ -178,7 +143,7 @@ func resourceGithubIssueLabelsUpdate(d *schema.ResourceData, meta interface{}) e
 	}
 
 	// delete
-	for name := range oMap {
+	for name, _ := range oMap {
 		if _, ok := nMap[name]; !ok {
 			_, err := client.Issues.DeleteLabel(ctx, owner, repoName, name)
 			if err != nil {

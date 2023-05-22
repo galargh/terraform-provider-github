@@ -18,32 +18,37 @@ func TestAccGithubIssueLabels(t *testing.T) {
 				PreCheck:  func() { skipUnlessMode(t, mode) },
 				Providers: testAccProviders,
 				Steps: []resource.TestStep{
-					// 0. Check if labels start from a clean slate
+					// 1. Check if some labels already exist (indicated by non-empty plan)
 					{
-						Config: testAccGithubIssueLabelsConfig(randomID, false, empty),
+						Config:             testAccGithubIssueLabelsConfig(randomID, empty),
+						ExpectNonEmptyPlan: true,
+					},
+					// 2. Check if all the labels are destroyed when the resource is added
+					{
+						Config: testAccGithubIssueLabelsConfig(randomID, empty),
 						Check:  resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "0"),
 					},
-					// 1. Check if a label can be created
+					// 3. Check if a label can be created
 					{
-						Config: testAccGithubIssueLabelsConfig(randomID, false, append(empty, map[string]interface{}{
+						Config: testAccGithubIssueLabelsConfig(randomID, append(empty, map[string]interface{}{
 							"name":        "foo",
 							"color":       "000000",
 							"description": "foo",
 						})),
 						Check: resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "1"),
 					},
-					// 2. Check if a label can be recreated
+					// 4. Check if a label can be recreated
 					{
-						Config: testAccGithubIssueLabelsConfig(randomID, false, append(empty, map[string]interface{}{
+						Config: testAccGithubIssueLabelsConfig(randomID, append(empty, map[string]interface{}{
 							"name":        "Foo",
 							"color":       "000000",
 							"description": "foo",
 						})),
 						Check: resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "1"),
 					},
-					// 3. Check if multiple labels can be created
+					// 5. Check if multiple labels can be created
 					{
-						Config: testAccGithubIssueLabelsConfig(randomID, false, append(empty,
+						Config: testAccGithubIssueLabelsConfig(randomID, append(empty,
 							map[string]interface{}{
 								"name":        "Foo",
 								"color":       "000000",
@@ -60,19 +65,9 @@ func TestAccGithubIssueLabels(t *testing.T) {
 							})),
 						Check: resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "3"),
 					},
-					// 4. Check if labels can be destroyed
+					// 6. Check if labels can be destroyed
 					{
-						Config: testAccGithubIssueLabelsConfig(randomID, false, empty),
-						Check:  resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "0"),
-					},
-					// 5. Check if the default labels were left untouched (note the switch to authoritative mode)
-					{
-						Config:             testAccGithubIssueLabelsConfig(randomID, true, empty),
-						ExpectNonEmptyPlan: true,
-					},
-					// 6. Check if the default labels can be destroyed
-					{
-						Config: testAccGithubIssueLabelsConfig(randomID, true, empty),
+						Config: testAccGithubIssueLabelsConfig(randomID, empty),
 						Check:  resource.TestCheckResourceAttr("github_issue_labels.test", "label.#", "0"),
 					},
 				},
@@ -93,7 +88,7 @@ func TestAccGithubIssueLabels(t *testing.T) {
 	})
 }
 
-func testAccGithubIssueLabelsConfig(randomId string, authoritative bool, labels []map[string]interface{}) string {
+func testAccGithubIssueLabelsConfig(randomId string, labels []map[string]interface{}) string {
 	dynamic := ""
 	for _, label := range labels {
 		dynamic += fmt.Sprintf(`
@@ -114,9 +109,7 @@ func testAccGithubIssueLabelsConfig(randomId string, authoritative bool, labels 
 		resource "github_issue_labels" "test" {
 			repository = github_repository.test.id
 
-			authoritative = %v
-
 			%s
 		}
-	`, randomId, authoritative, dynamic)
+	`, randomId, dynamic)
 }

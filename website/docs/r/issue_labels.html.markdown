@@ -12,7 +12,10 @@ Provides GitHub issue labels resource.
 This resource allows you to create and manage issue labels within your
 GitHub organization.
 
-~> Note: github_issue_labels cannot be used in conjunction with github_issue_label on the same labels in the authoritative mode or they will fight over what your policy should be.
+~> Note: github_issue_labels cannot be used in conjunction with github_issue_label or they will fight over what your policy should be.
+
+This resource is authoritative. For adding a label to a repo in a non-authoritative manner, use github_issue_label instead.
+
 
 ## Example Usage
 
@@ -38,8 +41,6 @@ resource "github_issue_labels" "test_repo" {
 The following arguments are supported:
 
 * `repository` - (Required) The GitHub repository
-
-* `authoritative` - (Optional) Whether or not this resource is authoritative. If true, this resource will remove any labels that are not specified in the configuration. If false, this resource will only add labels that are specified in the configuration. Defaults to true.
 
 * `name` - (Required) The name of the label.
 

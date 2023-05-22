@@ -33,9 +33,9 @@ func resourceGithubIssueLabels() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 						"name": {
-							Type:             schema.TypeString,
-							Required:         true,
-							Description:      "The name of the label.",
+							Type:        schema.TypeString,
+							Required:    true,
+							Description: "The name of the label.",
 						},
 						"color": {
 							Type:        schema.TypeString,
@@ -144,16 +144,11 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 		if _, ok := oMap[name]; !ok {
 			log.Printf("[DEBUG] Creating GitHub issue label %s/%s/%s", owner, repository, name)
 
-			_, _, err := client.Issues.CreateLabel(ctx, owner, repository, &github.Label{
+			label, _, err := client.Issues.CreateLabel(ctx, owner, repository, &github.Label{
 				Name:        github.String(n["name"].(string)),
 				Color:       github.String(n["color"].(string)),
 				Description: github.String(n["description"].(string)),
 			})
-			if err != nil {
-				return err
-			}
-
-			label, _, err := client.Issues.GetLabel(ctx, owner, repository, name)
 			if err != nil {
 				return err
 			}
@@ -185,7 +180,7 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 			if o["name"] != n["name"] || o["color"] != n["color"] || o["description"] != n["description"] {
 				log.Printf("[DEBUG] Updating GitHub issue label %s/%s/%s", owner, repository, name)
 
-				_, _, err := client.Issues.EditLabel(ctx, owner, repository, name, &github.Label{
+				label, _, err := client.Issues.EditLabel(ctx, owner, repository, name, &github.Label{
 					Name:        github.String(n["name"].(string)),
 					Color:       github.String(n["color"].(string)),
 					Description: github.String(n["description"].(string)),
@@ -193,19 +188,16 @@ func resourceGithubIssueLabelsCreateOrDeleteOrUpdate(d *schema.ResourceData, met
 				if err != nil {
 					return err
 				}
-			}
 
-			label, _, err := client.Issues.GetLabel(ctx, owner, repository, name)
-			if err != nil {
-				return err
+				labels = append(labels, map[string]interface{}{
+					"name":        label.GetName(),
+					"color":       label.GetColor(),
+					"description": label.GetDescription(),
+					"url":         label.GetURL(),
+				})
+			} else {
+				labels = append(labels, o)
 			}
-
-			labels = append(labels, map[string]interface{}{
-				"name":        label.GetName(),
-				"color":       label.GetColor(),
-				"description": label.GetDescription(),
-				"url":         label.GetURL(),
-			})
 		}
 	}
 

@@ -74,6 +74,11 @@ func resourceGithubIssueLabelsRead(d *schema.ResourceData, meta interface{}) err
 	log.Printf("[DEBUG] Found %d GitHub issue labels for %s/%s", len(labels), owner, repository)
 	log.Printf("[DEBUG] Labels: %v", labels)
 
+	err = d.Set("repository", repository)
+	if err != nil {
+		return err
+	}
+
 	err = d.Set("label", labels)
 	if err != nil {
 		return err

@@ -39,7 +39,7 @@ func resourceGithubIssueLabels() *schema.Resource {
 						},
 						"color": {
 							Type:        schema.TypeString,
-							Optional:    true,
+							Required:    true,
 							Description: "A 6 character hex code, without the leading '#', identifying the color of the label.",
 						},
 						"description": {

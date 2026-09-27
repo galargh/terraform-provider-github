@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/retry"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	sdkterraform "github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
@@ -507,6 +508,51 @@ func testAccGithubMembershipTheSame(orig, other *github.Membership) resource.Tes
 		}
 
 		return nil
+	}
+}
+
+func Test_resourceGithubMembershipUpdateWithoutRoleChange(t *testing.T) {
+	t.Parallel()
+
+	ts := githubApiMock([]*mockResponse{})
+	defer ts.Close()
+
+	meta := &Owner{
+		name:           "test-org",
+		v3client:       mustCreateTestGitHubClient(t, ts.URL),
+		IsOrganization: true,
+	}
+
+	state := &sdkterraform.InstanceState{
+		ID: buildTwoPartID("test-org", "octocat"),
+		Attributes: map[string]string{
+			"id":                   buildTwoPartID("test-org", "octocat"),
+			"username":             "octocat",
+			"role":                 "member",
+			"etag":                 `"old-etag"`,
+			"downgrade_on_destroy": "false",
+			"downgrade_to":         membershipDowngradeToMember,
+		},
+	}
+	diff := &sdkterraform.InstanceDiff{
+		Attributes: map[string]*sdkterraform.ResourceAttrDiff{
+			"downgrade_on_destroy": {
+				Old: "false",
+				New: "true",
+			},
+			"downgrade_to": {
+				Old: membershipDowngradeToMember,
+				New: membershipDowngradeToOutsideCollaborator,
+			},
+		},
+	}
+
+	actual, diags := resourceGithubMembership().Apply(t.Context(), state, diff, meta)
+	if diags.HasError() {
+		t.Fatalf("expected no diagnostics, got: %v", diags)
+	}
+	if etag := actual.Attributes["etag"]; etag != `"old-etag"` {
+		t.Fatalf("expected etag to be preserved, got %q", etag)
 	}
 }
 
